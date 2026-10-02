@@ -42,9 +42,10 @@ Respond ONLY with valid JSON matching this structure:
   "detectedDocType": "string"
 }`;
 
-        // Call Gemini if key starts with AIza... or Gemini format, or OpenAI if sk-...
+        // 1. Call Gemini if key starts with AIza... or GEMINI_API_KEY
         if (apiKey.startsWith('AIza') || process.env.GEMINI_API_KEY) {
-          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+          const geminiKey = apiKey.startsWith('AIza') ? apiKey : (process.env.GEMINI_API_KEY || apiKey);
+          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
           const res = await fetch(geminiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -69,13 +70,51 @@ Respond ONLY with valid JSON matching this structure:
             const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (textResponse) {
               const parsed: AIAnalysisResponse = JSON.parse(textResponse);
-              // Sanitize bounding boxes
-              parsed.fields = parsed.fields.map(f => ({
+              parsed.fields = (parsed.fields || []).map(f => ({
                 ...f,
                 box: sanitizeBoundingBox(f.box)
               }));
               return NextResponse.json({ success: true, source: 'gemini-1.5-flash', analysis: parsed });
             }
+          } else {
+            const errBody = await res.text();
+            console.warn('Gemini API call failed with status:', res.status, errBody);
+          }
+        } 
+        // 2. Call OpenAI if key starts with sk- or OPENAI_API_KEY
+        else if (apiKey.startsWith('sk-') || process.env.OPENAI_API_KEY) {
+          const openaiKey = apiKey.startsWith('sk-') ? apiKey : (process.env.OPENAI_API_KEY || apiKey);
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${openaiKey}`
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              temperature: 0.1,
+              response_format: { type: 'json_object' },
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `Document Name: ${fileName}\n\nDocument Text Content:\n${fullDocText}` }
+              ]
+            })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const textResponse = data.choices?.[0]?.message?.content;
+            if (textResponse) {
+              const parsed: AIAnalysisResponse = JSON.parse(textResponse);
+              parsed.fields = (parsed.fields || []).map(f => ({
+                ...f,
+                box: sanitizeBoundingBox(f.box)
+              }));
+              return NextResponse.json({ success: true, source: 'gpt-4o-mini', analysis: parsed });
+            }
+          } else {
+            const errBody = await res.text();
+            console.warn('OpenAI API call failed with status:', res.status, errBody);
           }
         }
       } catch (llmErr) {
