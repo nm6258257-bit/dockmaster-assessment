@@ -52,11 +52,40 @@ export function alignFieldsToDocumentAnchors(
     const lines = pageData.text.split(/\r?\n/).map(l => l.trimEnd());
     const totalLines = Math.max(lines.length, 1);
 
-    // Compute vertical position helper for standard 880px document view (48px top padding, 22.4px line height)
+    // Compute exact vertical positions matching pdf-generator typography & margins:
+    // US Letter: 792 pt height. Header banner: 46 pt. Content starts at 792 - 76 = 716 pt.
+    const lineMetrics: { top: number }[] = [];
+    let currentY = 792 - 76;
+
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
+      const isMainHeader = line === line.toUpperCase() && line.length > 5 && !line.includes('____');
+      const isPartyHeader =
+        line.startsWith('LESSOR:') ||
+        line.startsWith('LESSEE:') ||
+        line.startsWith('CLIENT:') ||
+        line.startsWith('CONTRACTOR:') ||
+        line.startsWith('DISCLOSING') ||
+        line.startsWith('RECEIVING');
+
+      const size = isMainHeader ? 12.5 : isPartyHeader ? 11 : 10.5;
+      const webY = 792 - currentY;
+      // Position the field box so it sits right on top of the text underline
+      const boxTop = Math.round(((webY - 15) / 792) * 1000);
+      lineMetrics.push({ top: boxTop });
+
+      if (!line) {
+        currentY -= 14;
+      } else {
+        currentY -= size * 1.52;
+      }
+    }
+
     const getLineTop = (lineIdx: number) => {
-      // In text simulation: Y = 48 + lineIdx * 22.4. Normalized to 1000 scale: (Y / 880) * 1000
-      const yPx = 48 + lineIdx * 22.4;
-      return Math.round((yPx / 880) * 1000);
+      if (lineIdx >= 0 && lineIdx < lineMetrics.length) {
+        return lineMetrics[lineIdx].top;
+      }
+      return Math.round(((76 + lineIdx * 16) / 792) * 1000);
     };
 
     // Find party sections in the lines
@@ -125,7 +154,7 @@ export function alignFieldsToDocumentAnchors(
           const top = getLineTop(checkboxLineIdx) - 2;
           alignedFields.push({
             ...field,
-            box: { top, left: 58, width: 26, height: 24 },
+            box: { top, left: 80, width: 24, height: 22 },
             confidence: 0.96,
             reasoning: `Anchored to execution acknowledgement bracket on line ${checkboxLineIdx + 1}`
           });
@@ -169,7 +198,7 @@ export function alignFieldsToDocumentAnchors(
           }
         } else if (field.type === 'text') {
           if (lower.includes('printed name:') || lower.includes('name:') || lower.includes('title:')) {
-            // Check if line already has a pre-printed name (e.g. "Scott Taylor, Operations Director")
+            // Check if line already has a pre-printed name (e.g. "Scott Taylor, Operations Director" or "Karen Barnes" or "Mathan M.")
             const afterLabel = line.replace(/^(printed\s+name|name|title)\s*:\s*/i, '').trim();
             const hasUnderline = afterLabel.includes('__') || afterLabel.includes('...');
             const isAlreadyPrePrinted = afterLabel.length > 2 && !hasUnderline;
@@ -179,7 +208,7 @@ export function alignFieldsToDocumentAnchors(
               return;
             }
             targetLineIdx = i;
-            anchorType = 'name';
+            anchorType = lower.includes('printed') ? 'printed' : 'name';
             break;
           }
         }
@@ -188,22 +217,25 @@ export function alignFieldsToDocumentAnchors(
       // If we found an exact anchor line, calculate anchored coordinates
       if (targetLineIdx !== -1) {
         const top = getLineTop(targetLineIdx) - 2;
-        let left = 140;
-        let width = 300;
+        let left = 114;
+        let width = 280;
         const height = 24;
 
         if (anchorType === 'by') {
-          left = 95;
-          width = 330;
+          left = 114;
+          width = 280;
         } else if (anchorType === 'signature') {
-          left = 180;
-          width = 320;
+          left = 167;
+          width = 260;
         } else if (anchorType === 'date') {
-          left = 135;
-          width = 240;
+          left = 124;
+          width = 230;
+        } else if (anchorType === 'printed') {
+          left = 196;
+          width = 260;
         } else if (anchorType === 'name') {
-          left = 210;
-          width = 310;
+          left = 134;
+          width = 260;
         }
 
         alignedFields.push({
