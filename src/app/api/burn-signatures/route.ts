@@ -78,9 +78,9 @@ export async function POST(req: NextRequest) {
 
             // Preserve natural aspect ratio so signature is never vertically squished or horizontally stretched
             const imgAspect = pngImage.width / pngImage.height;
-            let sigHeight = 28;
+            let sigHeight = 15;
             let sigWidth = sigHeight * imgAspect;
-            const maxWidth = Math.min(w || 180, 190);
+            const maxWidth = Math.min(w || 150, 160);
             if (sigWidth > maxWidth) {
               sigWidth = maxWidth;
               sigHeight = sigWidth / imgAspect;
@@ -88,15 +88,15 @@ export async function POST(req: NextRequest) {
 
             page.drawImage(pngImage, {
               x: x + 2,
-              y: y + 3,
+              y: y + 1,
               width: sigWidth,
               height: sigHeight,
             });
           } catch (imgErr) {
             page.drawText(field.value.slice(0, 30), {
               x: x + 2,
-              y: y + 4,
-              size: 16,
+              y: y + 2,
+              size: 12.5,
               font: timesItalic,
               color: rgb(0.05, 0.1, 0.45),
             });
@@ -105,8 +105,8 @@ export async function POST(req: NextRequest) {
           // Cursive simulated script
           page.drawText(field.value, {
             x: x + 2,
-            y: y + 4,
-            size: 16,
+            y: y + 2,
+            size: 12.5,
             font: timesItalic,
             color: rgb(0.05, 0.1, 0.45),
           });

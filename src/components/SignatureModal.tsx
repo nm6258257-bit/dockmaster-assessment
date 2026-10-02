@@ -77,6 +77,56 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
     setHasDrawn(false);
   };
 
+  const trimCanvas = (canvas: HTMLCanvasElement): string => {
+    try {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return canvas.toDataURL('image/png');
+      const width = canvas.width;
+      const height = canvas.height;
+      const imgData = ctx.getImageData(0, 0, width, height);
+      const data = imgData.data;
+
+      let minX = width, minY = height, maxX = 0, maxY = 0;
+      let found = false;
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const alpha = data[(y * width + x) * 4 + 3];
+          if (alpha > 10) {
+            found = true;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      if (!found) return canvas.toDataURL('image/png');
+
+      // Add 4px breathing room padding
+      minX = Math.max(0, minX - 4);
+      minY = Math.max(0, minY - 4);
+      maxX = Math.min(width - 1, maxX + 4);
+      maxY = Math.min(height - 1, maxY + 4);
+
+      const croppedW = maxX - minX + 1;
+      const croppedH = maxY - minY + 1;
+
+      const croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = croppedW;
+      croppedCanvas.height = croppedH;
+      const croppedCtx = croppedCanvas.getContext('2d');
+      if (croppedCtx) {
+        croppedCtx.drawImage(canvas, minX, minY, croppedW, croppedH, 0, 0, croppedW, croppedH);
+        return croppedCanvas.toDataURL('image/png');
+      }
+      return canvas.toDataURL('image/png');
+    } catch {
+      return canvas.toDataURL('image/png');
+    }
+  };
+
   const handleAdopt = () => {
     if (tab === 'draw') {
       const canvas = canvasRef.current;
@@ -84,18 +134,18 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
         alert('Please draw your signature first.');
         return;
       }
-      onConfirm(canvas.toDataURL('image/png'));
+      onConfirm(trimCanvas(canvas));
     } else {
       // Create offscreen canvas to render stylized script text
       const offscreen = document.createElement('canvas');
       offscreen.width = 400;
-      offscreen.height = 120;
+      offscreen.height = 100;
       const ctx = offscreen.getContext('2d');
       if (ctx) {
         ctx.fillStyle = '#0F172A';
-        ctx.font = 'italic 38px "Brush Script MT", "Caveat", "Segoe Script", cursive';
-        ctx.fillText(typedName, 20, 70);
-        onConfirm(offscreen.toDataURL('image/png'));
+        ctx.font = 'italic 34px "Brush Script MT", "Caveat", "Segoe Script", cursive';
+        ctx.fillText(typedName, 10, 55);
+        onConfirm(trimCanvas(offscreen));
       }
     }
   };
