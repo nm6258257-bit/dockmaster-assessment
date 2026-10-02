@@ -3,6 +3,50 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { DocumentField } from '@/lib/types';
 import { SAMPLE_DOCUMENTS } from '@/lib/sample-docs';
 import { createPdfFromPages } from '@/lib/pdf-generator';
+import { pdfStore } from '@/lib/pdf-store';
+
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const envelopeId = searchParams.get('envelopeId') || '';
+    const rawTitle = searchParams.get('title') || 'Commercial_Lease_Agreement';
+
+    const cleanTitle = rawTitle.replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Executed_${cleanTitle}.pdf`;
+
+    let pdfBytes: Uint8Array | null = null;
+
+    if (envelopeId && pdfStore.has(envelopeId)) {
+      pdfBytes = pdfStore.get(envelopeId)!.bytes;
+    }
+
+    if (!pdfBytes) {
+      // Synthesize on the fly
+      const cleanT = rawTitle.replace(/\.pdf$/i, '').toLowerCase();
+      const matchedSample = SAMPLE_DOCUMENTS.find(
+        (s) => s.id.toLowerCase().includes(cleanT) || s.name.toLowerCase().includes(cleanT) || cleanT.includes(s.id.replace('sample-', ''))
+      ) || SAMPLE_DOCUMENTS[1];
+      const base64Str = await createPdfFromPages(rawTitle, matchedSample.textByPage);
+      const cleanBase64 = base64Str.replace(/^data:application\/pdf;base64,/, '');
+      pdfBytes = Buffer.from(cleanBase64, 'base64');
+    }
+
+    return new NextResponse(Buffer.from(pdfBytes), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        'Content-Length': pdfBytes.length.toString(),
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Pragma': 'no-cache',
+      },
+    });
+  } catch (err: any) {
+    console.error('Error in GET /api/download-pdf:', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {

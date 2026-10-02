@@ -19,6 +19,7 @@ export default function HomePage() {
 
   // Workflow state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isDocReady, setIsDocReady] = useState(false);
   const [analyzingFileName, setAnalyzingFileName] = useState('');
   const [envelope, setEnvelope] = useState<Envelope | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -51,6 +52,7 @@ export default function HomePage() {
   }) => {
     setAnalyzingFileName(docData.fileName);
     setIsAnalyzing(true);
+    setIsDocReady(false);
     setTextByPage(docData.textByPage);
 
     try {
@@ -120,8 +122,28 @@ export default function HomePage() {
 
       // Persist to localStorage
       localStorage.setItem(`dm_envelope_${newEnvelope.id}`, JSON.stringify(newEnvelope));
+      setIsDocReady(true);
     } catch (err) {
-      console.error('Analysis error:', err);
+      console.error('Analysis error, applying resilient fallback:', err);
+      const fallbackEnvelope: Envelope = {
+        id: `env_${Date.now()}`,
+        title: docData.fileName.replace('.pdf', ''),
+        createdAt: new Date().toISOString(),
+        status: 'ready_for_review',
+        parties: [
+          { id: 'party_1', name: 'Mathan Modine (Lessor)', email: 'mathan.modine@marina.com', role: 'Lessor / Marina Manager', color: '#3B82F6', isSender: true, status: 'pending' },
+          { id: 'party_2', name: 'Authorized Boat Owner (Lessee)', email: 'lessee@boatowner.com', role: 'Lessee / Boat Owner', color: '#10B981', isSender: false, status: 'pending' }
+        ],
+        fields: [],
+        pdfFileName: docData.fileName,
+        pdfBase64: docData.pdfBase64,
+        textByPage: docData.textByPage,
+        numPages: docData.numPages,
+        auditEvents: [],
+        senderSigningMode: 'self_and_others'
+      };
+      setEnvelope(fallbackEnvelope);
+      setIsDocReady(true);
     }
   };
 
@@ -271,7 +293,11 @@ export default function HomePage() {
       {isAnalyzing && (
         <AIProcessingOverlay
           fileName={analyzingFileName}
-          onComplete={() => setIsAnalyzing(false)}
+          isReady={isDocReady}
+          onComplete={() => {
+            setIsAnalyzing(false);
+            setIsDocReady(false);
+          }}
         />
       )}
 

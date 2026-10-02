@@ -112,6 +112,7 @@ export default function SignPortalPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          envelopeId: envelope.id,
           pdfBase64: envelope.pdfBase64,
           fields: envelope.fields,
           title: envelope.title,
@@ -173,49 +174,22 @@ export default function SignPortalPage() {
   };
 
   const handleDownloadExecutedPdf = () => {
-    try {
-      const rawPdf = downloadPdfUrl || envelope?.pdfBase64;
-      const rawTitle = envelope?.title || 'Commercial_Lease_Agreement';
-      const cleanTitle = rawTitle.replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const filename = `Executed_${cleanTitle}.pdf`;
+    const rawTitle = envelope?.title || 'Commercial_Lease_Agreement';
+    const cleanTitle = rawTitle.replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Executed_${cleanTitle}.pdf`;
+    const downloadUrl = `/api/download-pdf?envelopeId=${encodeURIComponent(envelopeId)}&title=${encodeURIComponent(cleanTitle)}`;
 
-      if (rawPdf && rawPdf.includes('base64,')) {
-        // Direct Client-Side Binary Blob Download
-        const cleanBase64 = rawPdf.replace(/^data:application\/pdf;base64,/, '');
-        const byteCharacters = atob(cleanBase64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'application/pdf' });
-
-        const blobUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.setAttribute('download', filename);
-        link.download = filename;
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-
-        // Keep anchor and object URL alive for 60 seconds so Chromium's async download manager
-        // reliably completes the file write without stripping the extension or defaulting to the blob UUID.
-        setTimeout(() => {
-          try {
-            document.body.removeChild(link);
-            URL.revokeObjectURL(blobUrl);
-          } catch {}
-        }, 60000);
-        return;
-      }
-
-      // Server Endpoint Download Fallback
-      triggerServerDownload(filename);
-    } catch (err) {
-      console.error('Client download error, invoking server endpoint fallback:', err);
-      triggerServerDownload();
-    }
+    // Pure HTTP GET download bypasses Chromium blob: UUID bugs
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      try {
+        document.body.removeChild(a);
+      } catch {}
+    }, 1000);
   };
 
   const triggerServerDownload = (filename?: string) => {
@@ -352,14 +326,15 @@ export default function SignPortalPage() {
 
             <div style={{ display: 'flex', justifyContent: 'center', gap: '14px' }}>
               {(downloadPdfUrl || envelope?.pdfBase64 || isCompleted) && (
-                <button
-                  onClick={handleDownloadExecutedPdf}
+                <a
+                  href={`/api/download-pdf?envelopeId=${encodeURIComponent(envelopeId)}&title=${encodeURIComponent((envelope?.title || 'Commercial_Lease_Agreement').replace(/\.pdf$/i, ''))}`}
+                  download={`Executed_${(envelope?.title || 'Commercial_Lease_Agreement').replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`}
                   className="btn btn-primary"
-                  style={{ padding: '12px 24px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                  style={{ padding: '12px 24px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}
                 >
                   <Download size={16} />
                   <span>Download Executed PDF</span>
-                </button>
+                </a>
               )}
               <button
                 onClick={() => router.push('/')}

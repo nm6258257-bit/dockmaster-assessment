@@ -3,10 +3,12 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { DocumentField } from '@/lib/types';
 import { SAMPLE_DOCUMENTS } from '@/lib/sample-docs';
 import { createPdfFromPages } from '@/lib/pdf-generator';
+import { pdfStore } from '@/lib/pdf-store';
 
 export async function POST(req: NextRequest) {
   try {
     const {
+      envelopeId,
       pdfBase64: rawPdfBase64,
       fields = [],
       title = 'Commercial_Lease_Agreement.pdf',
@@ -143,6 +145,10 @@ export async function POST(req: NextRequest) {
 
     const modifiedPdfBytes = await pdfDoc.save();
     const resultBase64 = Buffer.from(modifiedPdfBytes).toString('base64');
+
+    if (envelopeId) {
+      pdfStore.set(envelopeId, { bytes: modifiedPdfBytes, title });
+    }
 
     return NextResponse.json({
       success: true,
