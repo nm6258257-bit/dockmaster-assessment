@@ -167,6 +167,39 @@ export default function SignPortalPage() {
     }
   };
 
+  const handleDownloadExecutedPdf = () => {
+    if (!downloadPdfUrl) return;
+
+    try {
+      const cleanBase64 = downloadPdfUrl.replace(/^data:application\/pdf;base64,/, '');
+      const binaryString = atob(cleanBase64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+
+      const rawTitle = envelope?.title || 'Agreement';
+      const cleanTitle = rawTitle.replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `Executed_${cleanTitle}.pdf`;
+
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+    } catch (err) {
+      console.error('Download error:', err);
+      window.open(downloadPdfUrl, '_blank');
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column' }}>
       {/* Top Banner */}
@@ -268,15 +301,14 @@ export default function SignPortalPage() {
 
             <div style={{ display: 'flex', justifyContent: 'center', gap: '14px' }}>
               {downloadPdfUrl && (
-                <a
-                  href={downloadPdfUrl}
-                  download={`Executed_${envelope.title}`}
+                <button
+                  onClick={handleDownloadExecutedPdf}
                   className="btn btn-primary"
-                  style={{ padding: '12px 24px', fontSize: '14px' }}
+                  style={{ padding: '12px 24px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
                   <Download size={16} />
                   <span>Download Executed PDF</span>
-                </a>
+                </button>
               )}
               <button
                 onClick={() => router.push('/')}

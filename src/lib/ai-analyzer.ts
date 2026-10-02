@@ -169,6 +169,15 @@ export function alignFieldsToDocumentAnchors(
           }
         } else if (field.type === 'text') {
           if (lower.includes('printed name:') || lower.includes('name:') || lower.includes('title:')) {
+            // Check if line already has a pre-printed name (e.g. "Scott Taylor, Operations Director")
+            const afterLabel = line.replace(/^(printed\s+name|name|title)\s*:\s*/i, '').trim();
+            const hasUnderline = afterLabel.includes('__') || afterLabel.includes('...');
+            const isAlreadyPrePrinted = afterLabel.length > 2 && !hasUnderline;
+
+            if (isAlreadyPrePrinted) {
+              // Signatory name is already typed into document text. Omit redundant field!
+              return;
+            }
             targetLineIdx = i;
             anchorType = 'name';
             break;
@@ -298,8 +307,15 @@ export function analyzeDocumentHeuristics(
       label: `Date of ${parties[0].role}`,
       confidence: 0.95,
       reasoning: 'Execution date line for primary signatory'
-    },
-    {
+    }
+  ];
+
+  const signPageText = textByPage.find(item => item.page === targetSignPage)?.text || '';
+  const party1PrintedMatch = signPageText.match(/printed\s+name\s*:\s*([^\r\n]+)/i);
+  const party1HasPrePrintedName = party1PrintedMatch && !party1PrintedMatch[1].includes('__') && party1PrintedMatch[1].trim().length > 3;
+
+  if (!party1HasPrePrintedName) {
+    rawFields.push({
       page: targetSignPage,
       type: 'text',
       partyId: 'party_1',
@@ -307,7 +323,10 @@ export function analyzeDocumentHeuristics(
       label: `Printed Name of ${parties[0].role}`,
       confidence: 0.92,
       reasoning: 'Authorized signatory printed legal name'
-    },
+    });
+  }
+
+  rawFields.push(
     {
       page: targetSignPage,
       type: 'signature',
@@ -335,7 +354,7 @@ export function analyzeDocumentHeuristics(
       confidence: 0.92,
       reasoning: 'Counterparty printed legal name'
     }
-  ];
+  );
 
   if (lowerFull.includes('acknowledge') || lowerFull.includes('certif') || lowerFull.includes('insurance') || lowerFull.includes('[ ]')) {
     rawFields.unshift({
