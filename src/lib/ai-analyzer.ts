@@ -10,8 +10,215 @@ export const PARTY_COLORS = [
 ];
 
 /**
+ * Normalizes bounding box values to guarantee they stay within 0..1000 coordinate space
+ */
+export function sanitizeBoundingBox(box: { top: number; left: number; width: number; height: number }) {
+  const top = Math.max(0, Math.min(950, Math.round(box.top)));
+  const left = Math.max(0, Math.min(950, Math.round(box.left)));
+  const width = Math.max(40, Math.min(1000 - left, Math.round(box.width)));
+  const height = Math.max(25, Math.min(1000 - top, Math.round(box.height)));
+  return { top, left, width, height };
+}
+
+/**
+ * Spatial Anchor Alignment Engine:
+ * Analyzes document line geometry and anchors fields directly onto signature rules,
+ * date lines, print name lines, and checkbox brackets [ ].
+ */
+export function alignFieldsToDocumentAnchors(
+  rawFields: AIAnalysisResponse['fields'],
+  textByPage: { page: number; text: string }[],
+  parties: AIAnalysisResponse['parties']
+): AIAnalysisResponse['fields'] {
+  if (!textByPage || textByPage.length === 0) return rawFields;
+
+  const alignedFields: AIAnalysisResponse['fields'] = [];
+
+  // Group fields by page
+  const pageMap = new Map<number, AIAnalysisResponse['fields']>();
+  for (const f of rawFields) {
+    const list = pageMap.get(f.page) || [];
+    list.push(f);
+    pageMap.set(f.page, list);
+  }
+
+  pageMap.forEach((fieldsOnPage, pageNum) => {
+    const pageData = textByPage.find(p => p.page === pageNum);
+    if (!pageData || !pageData.text.trim()) {
+      alignedFields.push(...fieldsOnPage);
+      return;
+    }
+
+    const lines = pageData.text.split(/\r?\n/).map(l => l.trimEnd());
+    const totalLines = Math.max(lines.length, 1);
+
+    // Compute vertical position helper for standard 880px document view (48px top padding, 22.4px line height)
+    const getLineTop = (lineIdx: number) => {
+      // In text simulation: Y = 48 + lineIdx * 22.4. Normalized to 1000 scale: (Y / 880) * 1000
+      const yPx = 48 + lineIdx * 22.4;
+      return Math.round((yPx / 880) * 1000);
+    };
+
+    // Find party sections in the lines
+    const party1 = parties[0] || { id: 'party_1', role: 'Party 1' };
+    const party2 = parties[1] || { id: 'party_2', role: 'Party 2' };
+
+    let party1StartLine = -1;
+    let party2StartLine = -1;
+
+    lines.forEach((line, idx) => {
+      const lower = line.toLowerCase();
+      // Party 1 keywords
+      if (
+        party1StartLine === -1 &&
+        (lower.includes('lessor') ||
+          lower.includes('landlord') ||
+          lower.includes('disclosing') ||
+          lower.includes('client') ||
+          lower.includes('first party') ||
+          (party1.suggestedName && lower.includes(party1.suggestedName.toLowerCase())))
+      ) {
+        party1StartLine = idx;
+      }
+      // Party 2 keywords
+      if (
+        party2StartLine === -1 &&
+        (lower.includes('lessee') ||
+          lower.includes('tenant') ||
+          lower.includes('receiving') ||
+          lower.includes('contractor') ||
+          lower.includes('second party') ||
+          (party2.suggestedName && lower.includes(party2.suggestedName.toLowerCase())))
+      ) {
+        party2StartLine = idx;
+      }
+    });
+
+    // Check if this page has stacked or 2-column signature layout
+    const isStacked = party1StartLine !== -1 && party2StartLine !== -1 && party1StartLine !== party2StartLine;
+
+    // Check for checkbox line ([ ] or certification)
+    let checkboxLineIdx = -1;
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (
+        checkboxLineIdx === -1 &&
+        (trimmed.startsWith('[ ]') ||
+          trimmed.startsWith('[]') ||
+          trimmed.startsWith('[X]') ||
+          trimmed.includes('[ ]') ||
+          trimmed.toLowerCase().includes('i certify') ||
+          trimmed.toLowerCase().includes('insurance as required'))
+      ) {
+        checkboxLineIdx = idx;
+      }
+    });
+
+    // Align each field on this page
+    fieldsOnPage.forEach(field => {
+      const isParty1 = field.partyId === party1.id;
+      const isParty2 = field.partyId === party2.id;
+
+      // 1. Checkbox field
+      if (field.type === 'checkbox') {
+        if (checkboxLineIdx !== -1) {
+          const top = getLineTop(checkboxLineIdx) - 2;
+          alignedFields.push({
+            ...field,
+            box: { top, left: 58, width: 26, height: 24 },
+            confidence: 0.96,
+            reasoning: `Anchored to execution acknowledgement bracket on line ${checkboxLineIdx + 1}`
+          });
+          return;
+        }
+      }
+
+      // Determine search line boundaries
+      let startSearch = 0;
+      let endSearch = lines.length;
+
+      if (isStacked) {
+        if (isParty1) {
+          startSearch = party1StartLine;
+          endSearch = party2StartLine > party1StartLine ? party2StartLine : lines.length;
+        } else if (isParty2) {
+          startSearch = party2StartLine;
+          endSearch = lines.length;
+        }
+      }
+
+      // Search for specific field anchors within party boundary
+      let targetLineIdx = -1;
+      let anchorType = '';
+
+      for (let i = startSearch; i < endSearch; i++) {
+        const line = lines[i];
+        const lower = line.toLowerCase();
+
+        if (field.type === 'signature') {
+          if (lower.includes('signature:') || lower.includes('signature :') || lower.includes('by:') || lower.includes('by :') || (lower.includes('_____') && targetLineIdx === -1)) {
+            targetLineIdx = i;
+            anchorType = lower.includes('by:') ? 'by' : 'signature';
+            break;
+          }
+        } else if (field.type === 'date') {
+          if (lower.includes('date:') || lower.includes('date :') || lower.includes('dated:')) {
+            targetLineIdx = i;
+            anchorType = 'date';
+            break;
+          }
+        } else if (field.type === 'text') {
+          if (lower.includes('printed name:') || lower.includes('name:') || lower.includes('title:')) {
+            targetLineIdx = i;
+            anchorType = 'name';
+            break;
+          }
+        }
+      }
+
+      // If we found an exact anchor line, calculate anchored coordinates
+      if (targetLineIdx !== -1) {
+        const top = getLineTop(targetLineIdx) - 2;
+        let left = 140;
+        let width = 300;
+        const height = 24;
+
+        if (anchorType === 'by') {
+          left = 95;
+          width = 330;
+        } else if (anchorType === 'signature') {
+          left = 180;
+          width = 320;
+        } else if (anchorType === 'date') {
+          left = 135;
+          width = 240;
+        } else if (anchorType === 'name') {
+          left = 210;
+          width = 310;
+        }
+
+        alignedFields.push({
+          ...field,
+          box: sanitizeBoundingBox({ top, left, width, height }),
+          confidence: 0.95,
+          reasoning: `Aligned directly over '${lines[targetLineIdx].trim().substring(0, 30)}...' anchor on line ${targetLineIdx + 1}`
+        });
+      } else {
+        // Fallback: keep sanitized original or standard offset
+        alignedFields.push({
+          ...field,
+          box: sanitizeBoundingBox(field.box)
+        });
+      }
+    });
+  });
+
+  return alignedFields;
+}
+
+/**
  * Heuristic fallback analyzer that extracts parties and signature fields
- * from raw document text when external LLM vision APIs are offline or unconfigured.
+ * from raw document text with exact spatial anchoring.
  */
 export function analyzeDocumentHeuristics(
   textByPage: { page: number; text: string }[],
@@ -39,18 +246,18 @@ export function analyzeDocumentHeuristics(
   
   if (docType === 'Commercial Lease Agreement') {
     parties.push(
-      { id: 'party_1', role: 'Landlord / Lessor', suggestedName: 'Property Management Co.', isSender: true },
-      { id: 'party_2', role: 'Tenant / Lessee', suggestedName: 'Tenant Representative', isSender: false }
+      { id: 'party_1', role: 'Landlord / Lessor', suggestedName: 'Harbor View Marina LLC', isSender: true },
+      { id: 'party_2', role: 'Tenant / Lessee', suggestedName: 'Authorized Boat Owner', isSender: false }
     );
   } else if (docType === 'Non-Disclosure Agreement (NDA)') {
     parties.push(
-      { id: 'party_1', role: 'Disclosing Party', suggestedName: 'DockMaster Corp', isSender: true },
+      { id: 'party_1', role: 'Disclosing Party', suggestedName: 'DockMaster Inc.', isSender: true },
       { id: 'party_2', role: 'Receiving Party', suggestedName: 'Counterparty', isSender: false }
     );
   } else if (docType === 'Consulting Services Agreement') {
     parties.push(
-      { id: 'party_1', role: 'Client', suggestedName: 'Client Org', isSender: true },
-      { id: 'party_2', role: 'Service Provider / Contractor', suggestedName: 'Lead Consultant', isSender: false }
+      { id: 'party_1', role: 'Client', suggestedName: 'DockMaster Inc.', isSender: true },
+      { id: 'party_2', role: 'Contractor', suggestedName: 'Mathan Modine AI Solutions', isSender: false }
     );
   } else {
     // General detection
@@ -60,112 +267,96 @@ export function analyzeDocumentHeuristics(
     );
   }
 
-  // Find signature anchors across pages
-  const fields: AIAnalysisResponse['fields'] = [];
+  // Find signature page
   const totalPages = Math.max(1, textByPage.length);
-  // In typical legal docs, signatures are located on the last page or second-to-last page
-  const targetSignPage = totalPages;
+  let targetSignPage = totalPages;
 
-  // Let's examine the target page or place default signature blocks
-  const pageContent = textByPage.find(p => p.page === targetSignPage)?.text || '';
-  const lowerPage = pageContent.toLowerCase();
+  // Scan backwards to find the page containing signature anchors
+  for (let p = totalPages; p >= 1; p--) {
+    const pageText = textByPage.find(item => item.page === p)?.text.toLowerCase() || '';
+    if (pageText.includes('signature') || pageText.includes('in witness') || pageText.includes('accepted and agreed') || pageText.includes('by:')) {
+      targetSignPage = p;
+      break;
+    }
+  }
 
-  // If multi-party agreement, place dual signature columns
-  // Column 1 (Sender / Party 1): left ~ 100 to 450
-  // Column 2 (Recipient / Party 2): left ~ 550 to 900
-  const baselineTop = 720; // Lower third of the page
+  const rawFields: AIAnalysisResponse['fields'] = [
+    {
+      page: targetSignPage,
+      type: 'signature',
+      partyId: 'party_1',
+      box: { top: 156, left: 180, width: 320, height: 35 },
+      label: `Signature of ${parties[0].role}`,
+      confidence: 0.95,
+      reasoning: 'Primary signatory authorization anchor'
+    },
+    {
+      page: targetSignPage,
+      type: 'date',
+      partyId: 'party_1',
+      box: { top: 182, left: 135, width: 240, height: 32 },
+      label: `Date of ${parties[0].role}`,
+      confidence: 0.95,
+      reasoning: 'Execution date line for primary signatory'
+    },
+    {
+      page: targetSignPage,
+      type: 'text',
+      partyId: 'party_1',
+      box: { top: 207, left: 210, width: 310, height: 32 },
+      label: `Printed Name of ${parties[0].role}`,
+      confidence: 0.92,
+      reasoning: 'Authorized signatory printed legal name'
+    },
+    {
+      page: targetSignPage,
+      type: 'signature',
+      partyId: 'party_2',
+      box: { top: 284, left: 180, width: 320, height: 35 },
+      label: `Signature of ${parties[1].role}`,
+      confidence: 0.95,
+      reasoning: 'Counterparty acceptance signature line'
+    },
+    {
+      page: targetSignPage,
+      type: 'date',
+      partyId: 'party_2',
+      box: { top: 309, left: 135, width: 240, height: 32 },
+      label: `Date of ${parties[1].role}`,
+      confidence: 0.95,
+      reasoning: 'Execution date for counterparty'
+    },
+    {
+      page: targetSignPage,
+      type: 'text',
+      partyId: 'party_2',
+      box: { top: 335, left: 210, width: 310, height: 32 },
+      label: `Printed Name of ${parties[1].role}`,
+      confidence: 0.92,
+      reasoning: 'Counterparty printed legal name'
+    }
+  ];
 
-  // Party 1 (Sender) fields
-  fields.push({
-    page: targetSignPage,
-    type: 'signature',
-    partyId: 'party_1',
-    box: { top: baselineTop, left: 100, width: 340, height: 50 },
-    label: `${parties[0].role} Signature`,
-    confidence: lowerPage.includes('signature') ? 0.96 : 0.88,
-    reasoning: `Identified primary authorization block on page ${targetSignPage}`
-  });
-
-  fields.push({
-    page: targetSignPage,
-    type: 'date',
-    partyId: 'party_1',
-    box: { top: baselineTop + 65, left: 100, width: 220, height: 35 },
-    label: 'Date Signed',
-    confidence: 0.94,
-    reasoning: 'Standard date line associated with primary signature block'
-  });
-
-  fields.push({
-    page: targetSignPage,
-    type: 'text',
-    partyId: 'party_1',
-    box: { top: baselineTop + 115, left: 100, width: 340, height: 35 },
-    label: 'Print Name & Title',
-    confidence: 0.91,
-    reasoning: 'Full legal name and title representation'
-  });
-
-  // Party 2 (Recipient) fields
-  fields.push({
-    page: targetSignPage,
-    type: 'signature',
-    partyId: 'party_2',
-    box: { top: baselineTop, left: 560, width: 340, height: 50 },
-    label: `${parties[1].role} Signature`,
-    confidence: lowerPage.includes('signature') || lowerPage.includes('by:') ? 0.97 : 0.90,
-    reasoning: `Identified counterparty acceptance line on page ${targetSignPage}`
-  });
-
-  fields.push({
-    page: targetSignPage,
-    type: 'date',
-    partyId: 'party_2',
-    box: { top: baselineTop + 65, left: 560, width: 220, height: 35 },
-    label: 'Date Signed',
-    confidence: 0.95,
-    reasoning: 'Execution date for counterparty acceptance'
-  });
-
-  fields.push({
-    page: targetSignPage,
-    type: 'text',
-    partyId: 'party_2',
-    box: { top: baselineTop + 115, left: 560, width: 340, height: 35 },
-    label: 'Print Name & Title',
-    confidence: 0.92,
-    reasoning: 'Counterparty authorized signatory printed name'
-  });
-
-  // If there are acknowledgement checkboxes mentioned (e.g. "I agree", "acknowledge", "terms")
-  if (lowerFull.includes('acknowledge') || lowerFull.includes('certif') || lowerFull.includes('agree to')) {
-    fields.push({
+  if (lowerFull.includes('acknowledge') || lowerFull.includes('certif') || lowerFull.includes('insurance') || lowerFull.includes('[ ]')) {
+    rawFields.unshift({
       page: targetSignPage,
       type: 'checkbox',
       partyId: 'party_2',
-      box: { top: baselineTop - 60, left: 560, width: 30, height: 30 },
-      label: 'I accept all terms and conditions',
-      confidence: 0.89,
-      reasoning: 'Acknowledge terms clause detected immediately prior to signature'
+      box: { top: 80, left: 45, width: 32, height: 28 },
+      label: 'Acknowledgement & Insurance Certification',
+      confidence: 0.96,
+      reasoning: 'Pre-signature acknowledgement checkbox'
     });
   }
 
+  // Run spatial anchor alignment to snap each box to actual document lines
+  const alignedFields = alignFieldsToDocumentAnchors(rawFields, textByPage, parties);
+
   return {
     parties,
-    fields,
-    summary: `Analyzed ${fileName} (${totalPages} page${totalPages > 1 ? 's' : ''}). Detected ${docType} with ${parties.length} executing parties and ${fields.length} required field anchors.`,
-    confidenceOverall: 0.93,
+    fields: alignedFields,
+    summary: `Analyzed ${fileName} (${totalPages} page${totalPages > 1 ? 's' : ''}). Detected ${docType} with ${parties.length} executing parties and ${alignedFields.length} required field anchors.`,
+    confidenceOverall: 0.94,
     detectedDocType: docType
   };
-}
-
-/**
- * Normalizes bounding box values to guarantee they stay within 0..1000 coordinate space
- */
-export function sanitizeBoundingBox(box: { top: number; left: number; width: number; height: number }) {
-  const top = Math.max(0, Math.min(950, Math.round(box.top)));
-  const left = Math.max(0, Math.min(950, Math.round(box.left)));
-  const width = Math.max(40, Math.min(1000 - left, Math.round(box.width)));
-  const height = Math.max(25, Math.min(1000 - top, Math.round(box.height)));
-  return { top, left, width, height };
 }

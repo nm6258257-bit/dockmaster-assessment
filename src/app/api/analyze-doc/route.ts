@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { analyzeDocumentHeuristics, sanitizeBoundingBox } from '@/lib/ai-analyzer';
+import { analyzeDocumentHeuristics, sanitizeBoundingBox, alignFieldsToDocumentAnchors } from '@/lib/ai-analyzer';
 import { AIAnalysisResponse, FieldType } from '@/lib/types';
 
 export async function POST(req: NextRequest) {
@@ -70,10 +70,11 @@ Respond ONLY with valid JSON matching this structure:
             const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (textResponse) {
               const parsed: AIAnalysisResponse = JSON.parse(textResponse);
-              parsed.fields = (parsed.fields || []).map(f => ({
+              const sanitized = (parsed.fields || []).map(f => ({
                 ...f,
                 box: sanitizeBoundingBox(f.box)
               }));
+              parsed.fields = alignFieldsToDocumentAnchors(sanitized, textByPage, parsed.parties || []);
               return NextResponse.json({ success: true, source: 'gemini-1.5-flash', analysis: parsed });
             }
           } else {
@@ -106,10 +107,11 @@ Respond ONLY with valid JSON matching this structure:
             const textResponse = data.choices?.[0]?.message?.content;
             if (textResponse) {
               const parsed: AIAnalysisResponse = JSON.parse(textResponse);
-              parsed.fields = (parsed.fields || []).map(f => ({
+              const sanitized = (parsed.fields || []).map(f => ({
                 ...f,
                 box: sanitizeBoundingBox(f.box)
               }));
+              parsed.fields = alignFieldsToDocumentAnchors(sanitized, textByPage, parsed.parties || []);
               return NextResponse.json({ success: true, source: 'gpt-4o-mini', analysis: parsed });
             }
           } else {

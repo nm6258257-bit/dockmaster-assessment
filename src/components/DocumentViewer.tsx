@@ -47,6 +47,39 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [renderError, setRenderError] = useState(false);
+  const [dragState, setDragState] = useState<{
+    fieldId: string;
+    startX: number;
+    startY: number;
+    startLeft: number;
+    startTop: number;
+  } | null>(null);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!dragState || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const deltaX = ((e.clientX - dragState.startX) / rect.width) * 1000;
+    const deltaY = ((e.clientY - dragState.startY) / rect.height) * 1000;
+
+    const newLeft = Math.max(0, Math.min(950, Math.round(dragState.startLeft + deltaX)));
+    const newTop = Math.max(0, Math.min(950, Math.round(dragState.startTop + deltaY)));
+
+    const field = fields.find((f) => f.id === dragState.fieldId);
+    if (field) {
+      onUpdateField({
+        ...field,
+        box: {
+          ...field.box,
+          left: newLeft,
+          top: newTop
+        }
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setDragState(null);
+  };
 
   // Render PDF page on canvas if pdfBase64 is present
   useEffect(() => {
@@ -234,6 +267,10 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         }}
       >
         <div
+          ref={containerRef}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
           style={{
             position: 'relative',
             width: `${680 * zoom}px`,
@@ -243,7 +280,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             borderRadius: '4px',
             color: '#1E293B',
             transformOrigin: 'top center',
-            transition: 'width 0.15s ease, min-height 0.15s ease'
+            transition: 'width 0.15s ease, min-height 0.15s ease',
+            userSelect: dragState ? 'none' : 'auto'
           }}
           onClick={(e) => {
             if (e.target === e.currentTarget) {
@@ -281,6 +319,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           {currentPageFields.map((field) => {
             const party = getParty(field.partyId);
             const isSelected = field.id === selectedFieldId;
+            const isDraggingThis = dragState?.fieldId === field.id;
 
             // Map 0..1000 coordinate space to percentage
             const topPct = field.box.top / 10;
@@ -291,6 +330,17 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             return (
               <div
                 key={field.id}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setSelectedFieldId(field.id);
+                  setDragState({
+                    fieldId: field.id,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    startLeft: field.box.left,
+                    startTop: field.box.top
+                  });
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   setSelectedFieldId(field.id);
@@ -306,6 +356,9 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                     : `${party.color}15`,
                   border: `2px solid ${party.color}`,
                   color: party.color,
+                  cursor: isDraggingThis ? 'grabbing' : 'grab',
+                  boxShadow: isDraggingThis ? `0 8px 24px ${party.color}50` : undefined,
+                  zIndex: isDraggingThis ? 40 : (isSelected ? 30 : 20)
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>

@@ -54,9 +54,18 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
       for (let i = 1; i <= numPages; i++) {
         const page = await pdfDoc.getPage(i);
         const textContent = await page.getTextContent();
-        const pageString = textContent.items
-          .map((item: any) => item.str)
-          .join(' ');
+        let lastY: number | null = null;
+        let pageString = '';
+        for (const item of textContent.items as any[]) {
+          const y = item.transform ? Math.round(item.transform[5]) : null;
+          if (lastY !== null && y !== null && Math.abs(y - lastY) > 5) {
+            pageString += '\n';
+          } else if (pageString.length > 0 && !pageString.endsWith('\n') && !pageString.endsWith(' ')) {
+            pageString += ' ';
+          }
+          pageString += item.str;
+          lastY = y;
+        }
         textByPage.push({ page: i, text: pageString });
       }
 
