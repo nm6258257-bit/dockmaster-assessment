@@ -87,8 +87,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         gap: '8px',
         padding: '6px 14px',
         borderRadius: '9999px',
-        background: 'rgba(16, 185, 129, 0.1)',
-        border: '1px solid rgba(16, 185, 129, 0.25)',
+        background: 'rgba(16, 185, 129, 0.12)',
+        border: '1px solid rgba(16, 185, 129, 0.3)',
         fontSize: '12px',
         color: '#34D399'
       }}>
@@ -97,9 +97,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           height: '7px',
           borderRadius: '50%',
           background: '#10B981',
-          boxShadow: '0 0 8px #10B981'
+          boxShadow: '0 0 10px #10B981'
         }} />
-        <span>Evaluation Session Ready</span>
+        <span style={{ fontWeight: 600, letterSpacing: '0.2px' }}>AI Engine: GPT-4o-mini Active</span>
       </div>
 
       {/* Right Actions */}
