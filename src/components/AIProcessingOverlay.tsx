@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Sparkles, CheckCircle2, Bot, Search, Cpu, Loader2 } from 'lucide-react';
+import { Sparkles, CheckCircle2, Bot, Search, Cpu, Loader2, X, ArrowRight } from 'lucide-react';
 
 interface AIProcessingOverlayProps {
   fileName: string;
@@ -16,30 +16,17 @@ export const AIProcessingOverlay: React.FC<AIProcessingOverlayProps> = ({
 }) => {
   const [step, setStep] = useState(0);
   const [isFinishing, setIsFinishing] = useState(false);
-  const stepIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const onCompleteRef = useRef(onComplete);
 
-  const steps = [
-    {
-      icon: Search,
-      title: 'Extracting Visual Anchors & Text Layout',
-      desc: 'Scanning document geometry, underline rules, and signature clauses...'
-    },
-    {
-      icon: Bot,
-      title: 'Identifying Contracting Parties & Legal Roles',
-      desc: 'Detecting lessor/lessee, disclosing/receiving, and required signatories...'
-    },
-    {
-      icon: Cpu,
-      title: 'Calculating Coordinate Bounds & Confidence Scores',
-      desc: 'Placing signature, date, and text fields with explainable AI reasoning...'
-    }
-  ];
-
-  // Advance steps progressively
+  // Keep callback reference updated without triggering re-renders
   useEffect(() => {
-    const t1 = setTimeout(() => setStep(1), 800);
-    const t2 = setTimeout(() => setStep(2), 1800);
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  // Advance steps progressively while analyzing
+  useEffect(() => {
+    const t1 = setTimeout(() => setStep(1), 700);
+    const t2 = setTimeout(() => setStep(2), 1500);
 
     return () => {
       clearTimeout(t1);
@@ -47,46 +34,95 @@ export const AIProcessingOverlay: React.FC<AIProcessingOverlayProps> = ({
     };
   }, []);
 
-  // When isReady becomes true, finish with brief celebration and transition
+  // When isReady becomes true, auto-transition after 500ms
   useEffect(() => {
-    if (isReady && !isFinishing) {
+    if (isReady) {
       setIsFinishing(true);
       setStep(3); // All complete
 
       const finishTimer = setTimeout(() => {
-        onComplete();
+        if (onCompleteRef.current) {
+          onCompleteRef.current();
+        }
       }, 500);
 
       return () => clearTimeout(finishTimer);
     }
-  }, [isReady, isFinishing, onComplete]);
+  }, [isReady]);
+
+  // Handle escape key to dismiss
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onComplete();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onComplete]);
 
   return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      background: 'rgba(8, 12, 20, 0.94)',
-      backdropFilter: 'blur(20px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 100,
-      padding: '24px'
-    }}>
-      <div style={{
-        maxWidth: '540px',
-        width: '100%',
-        background: 'var(--bg-surface)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: 'var(--radius-xl)',
-        padding: '36px',
-        boxShadow: '0 20px 50px rgba(0, 0, 0, 0.6), 0 0 40px rgba(59, 130, 246, 0.15)',
-        textAlign: 'center',
-        position: 'relative',
-        overflow: 'hidden'
-      }}>
+    <div
+      onClick={(e) => {
+        // If document is ready, clicking backdrop immediately dismisses
+        if (isReady || isFinishing) {
+          onComplete();
+        }
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(8, 12, 20, 0.94)',
+        backdropFilter: 'blur(20px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 100,
+        padding: '24px'
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxWidth: '540px',
+          width: '100%',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          padding: '36px',
+          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.6), 0 0 40px rgba(59, 130, 246, 0.15)',
+          textAlign: 'center',
+          position: 'relative',
+          overflow: 'hidden'
+        }}
+      >
+        {/* Close Button always available */}
+        <button
+          onClick={onComplete}
+          title="Close overlay"
+          style={{
+            position: 'absolute',
+            top: '16px',
+            right: '16px',
+            width: '32px',
+            height: '32px',
+            borderRadius: '50%',
+            background: 'rgba(255, 255, 255, 0.08)',
+            border: '1px solid var(--border-subtle)',
+            color: 'var(--text-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            zIndex: 10
+          }}
+        >
+          <X size={16} />
+        </button>
+
         {/* Animated scanning line that loops continuously */}
-        <div className="scanning-line" style={{
+        <div style={{
           position: 'absolute',
           top: 0,
           left: 0,
@@ -128,7 +164,23 @@ export const AIProcessingOverlay: React.FC<AIProcessingOverlayProps> = ({
 
         {/* Step List */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}>
-          {steps.map((s, idx) => {
+          {[
+            {
+              icon: Search,
+              title: 'Extracting Visual Anchors & Text Layout',
+              desc: 'Scanning document geometry, underline rules, and signature clauses...'
+            },
+            {
+              icon: Bot,
+              title: 'Identifying Contracting Parties & Legal Roles',
+              desc: 'Detecting lessor/lessee, disclosing/receiving, and required signatories...'
+            },
+            {
+              icon: Cpu,
+              title: 'Calculating Coordinate Bounds & Confidence Scores',
+              desc: 'Placing signature, date, and text fields with explainable AI reasoning...'
+            }
+          ].map((s, idx) => {
             const Icon = s.icon;
             const isCompleted = step > idx || isFinishing;
             const isCurrent = step === idx && !isFinishing;
@@ -198,8 +250,26 @@ export const AIProcessingOverlay: React.FC<AIProcessingOverlayProps> = ({
           })}
         </div>
 
-        {/* Looping Status indicator while waiting for file ready */}
-        {!isFinishing && (
+        {/* Looping Status or Open Button */}
+        {isFinishing ? (
+          <button
+            onClick={onComplete}
+            className="btn btn-primary"
+            style={{
+              marginTop: '24px',
+              width: '100%',
+              padding: '12px',
+              fontSize: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px'
+            }}
+          >
+            <span>Open Document Workspace</span>
+            <ArrowRight size={16} />
+          </button>
+        ) : (
           <div style={{
             display: 'flex',
             alignItems: 'center',
