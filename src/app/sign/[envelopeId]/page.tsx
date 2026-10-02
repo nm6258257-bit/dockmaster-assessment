@@ -168,35 +168,43 @@ export default function SignPortalPage() {
   };
 
   const handleDownloadExecutedPdf = () => {
-    if (!downloadPdfUrl) return;
-
     try {
-      const cleanBase64 = downloadPdfUrl.replace(/^data:application\/pdf;base64,/, '');
-      const binaryString = atob(cleanBase64);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
+      // Use standard HTML Form POST to /api/download-pdf
+      // This forces the browser to handle the file download natively via HTTP Content-Disposition headers,
+      // completely bypassing Chrome's blob UUID naming bug.
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/api/download-pdf';
+      form.target = '_blank';
 
-      const blob = new Blob([bytes], { type: 'application/pdf' });
-      const blobUrl = URL.createObjectURL(blob);
+      const inputTitle = document.createElement('input');
+      inputTitle.type = 'hidden';
+      inputTitle.name = 'title';
+      inputTitle.value = envelope?.title || 'Commercial_Lease_Agreement';
+      form.appendChild(inputTitle);
 
-      const rawTitle = envelope?.title || 'Agreement';
-      const cleanTitle = rawTitle.replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const filename = `Executed_${cleanTitle}.pdf`;
+      const inputPdf = document.createElement('input');
+      inputPdf.type = 'hidden';
+      inputPdf.name = 'pdfBase64';
+      inputPdf.value = downloadPdfUrl || envelope?.pdfBase64 || '';
+      form.appendChild(inputPdf);
 
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const inputFields = document.createElement('input');
+      inputFields.type = 'hidden';
+      inputFields.name = 'fields';
+      inputFields.value = JSON.stringify(partyFields || []);
+      form.appendChild(inputFields);
 
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+      document.body.appendChild(form);
+      form.submit();
+      setTimeout(() => {
+        document.body.removeChild(form);
+      }, 1000);
     } catch (err) {
-      console.error('Download error:', err);
-      window.open(downloadPdfUrl, '_blank');
+      console.error('Download form error:', err);
+      if (downloadPdfUrl) {
+        window.open(downloadPdfUrl, '_blank');
+      }
     }
   };
 
