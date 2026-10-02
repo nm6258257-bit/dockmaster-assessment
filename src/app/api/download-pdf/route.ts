@@ -123,53 +123,83 @@ export async function POST(req: NextRequest) {
             const pngBase64 = field.value.replace(/^data:image\/png;base64,/, '');
             const pngBytes = Buffer.from(pngBase64, 'base64');
             const pngImage = await pdfDoc.embedPng(pngBytes);
+            
+            // Maintain natural aspect ratio to prevent squishing
+            const imgAspect = pngImage.width / pngImage.height;
+            let sigHeight = 28;
+            let sigWidth = sigHeight * imgAspect;
+            const maxWidth = Math.min(w || 180, 190);
+            if (sigWidth > maxWidth) {
+              sigWidth = maxWidth;
+              sigHeight = sigWidth / imgAspect;
+            }
+
             page.drawImage(pngImage, {
-              x,
-              y,
-              width: Math.min(w, 180),
-              height: Math.min(h, 60),
+              x: x + 2,
+              y: y + 3,
+              width: sigWidth,
+              height: sigHeight,
             });
           } catch {
             page.drawText(field.value.slice(0, 30), {
-              x,
-              y: y + 10,
+              x: x + 2,
+              y: y + 4,
               size: 16,
               font: timesItalic,
-              color: rgb(0.05, 0.1, 0.5),
+              color: rgb(0.05, 0.1, 0.45),
             });
           }
         } else {
           page.drawText(field.value, {
-            x,
-            y: y + 8,
-            size: 18,
+            x: x + 2,
+            y: y + 4,
+            size: 16,
             font: timesItalic,
-            color: rgb(0.05, 0.1, 0.5),
+            color: rgb(0.05, 0.1, 0.45),
           });
         }
       } else if (field.type === 'checkbox') {
         const isChecked = field.value === 'true' || field.value === 'checked';
+        
+        // 1. Total opaque white background to completely mask initial "[ ]" placeholder
         page.drawRectangle({
-          x,
-          y,
+          x: x - 1,
+          y: y - 2,
           width: 14,
           height: 14,
-          borderColor: rgb(0.2, 0.3, 0.4),
-          borderWidth: 1,
+          color: rgb(1, 1, 1), // 100% Solid Opaque White
         });
+
         if (isChecked) {
-          page.drawText('X', {
-            x: x + 3,
-            y: y + 2,
-            size: 11,
-            font: helveticaBold,
-            color: rgb(0.1, 0.6, 0.3),
+          // 2. Clean, elegant checkmark tick matching document text size (~10.5pt)
+          page.drawLine({
+            start: { x: x + 1.5, y: y + 3 },
+            end: { x: x + 4.5, y: y - 0.5 },
+            thickness: 1.8,
+            color: rgb(0.05, 0.50, 0.22),
+          });
+          page.drawLine({
+            start: { x: x + 4.5, y: y - 0.5 },
+            end: { x: x + 10.5, y: y + 9 },
+            thickness: 1.8,
+            color: rgb(0.05, 0.50, 0.22),
+          });
+        } else {
+          // Clean unchecked outline box
+          page.drawRectangle({
+            x: x + 1,
+            y: y,
+            width: 10,
+            height: 10,
+            borderColor: rgb(0.35, 0.4, 0.45),
+            borderWidth: 1,
+            color: rgb(1, 1, 1),
           });
         }
       } else if (field.value) {
         page.drawText(field.value, {
-          x,
-          y: y + 5,
+          x: x + 2,
+          y: y + 4,
           size: 11,
           font: helvetica,
           color: rgb(0.1, 0.1, 0.15),
