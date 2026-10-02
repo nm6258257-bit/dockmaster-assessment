@@ -11,6 +11,7 @@ import { OutboxDrawer } from '@/components/OutboxDrawer';
 import { SampleDoc } from '@/lib/sample-docs';
 import { Envelope, DocumentField, Party, SimulatedEmail, SenderSigningMode } from '@/lib/types';
 import { PARTY_COLORS } from '@/lib/ai-analyzer';
+import { createPdfFromPages } from '@/lib/pdf-generator';
 import { useRouter } from 'next/navigation';
 
 export default function HomePage() {
@@ -98,6 +99,7 @@ export default function HomePage() {
         fields: formattedFields,
         pdfFileName: docData.fileName,
         pdfBase64: docData.pdfBase64,
+        textByPage: docData.textByPage,
         numPages: docData.numPages,
         auditEvents: [
           {
@@ -123,12 +125,24 @@ export default function HomePage() {
     }
   };
 
-  const handleSelectSample = (sample: SampleDoc) => {
-    handleStartAnalysis({
-      fileName: sample.name,
-      textByPage: sample.textByPage,
-      numPages: sample.pages
-    });
+  const handleSelectSample = async (sample: SampleDoc) => {
+    try {
+      // Synthesize authentic vector PDF from sample pages
+      const pdfBase64 = await createPdfFromPages(sample.name, sample.textByPage);
+      handleStartAnalysis({
+        fileName: sample.name,
+        textByPage: sample.textByPage,
+        numPages: sample.pages,
+        pdfBase64
+      });
+    } catch (e) {
+      console.error('Failed to pre-render sample PDF, falling back to text:', e);
+      handleStartAnalysis({
+        fileName: sample.name,
+        textByPage: sample.textByPage,
+        numPages: sample.pages
+      });
+    }
   };
 
   // Field manipulation

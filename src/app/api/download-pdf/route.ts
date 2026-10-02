@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { DocumentField } from '@/lib/types';
+import { SAMPLE_DOCUMENTS } from '@/lib/sample-docs';
+import { createPdfFromPages } from '@/lib/pdf-generator';
 
 export async function POST(req: NextRequest) {
   try {
     let pdfBase64 = '';
     let fields: DocumentField[] = [];
-    let title = 'Commercial_Lease_Agreement';
+    let title = 'Commercial_Lease_Agreement.pdf';
 
     const contentType = req.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
@@ -26,6 +28,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // If pdfBase64 is empty or missing, synthesize multi-page PDF from sample
+    if (!pdfBase64 || !pdfBase64.includes('base64,')) {
+      const cleanT = title.replace(/\.pdf$/i, '').toLowerCase();
+      const matchedSample = SAMPLE_DOCUMENTS.find(
+        (s) => s.id.toLowerCase().includes(cleanT) || s.name.toLowerCase().includes(cleanT) || cleanT.includes(s.id.replace('sample-', ''))
+      ) || SAMPLE_DOCUMENTS[1]; // Default to Commercial Lease Agreement (3 pages)
+      pdfBase64 = await createPdfFromPages(title, matchedSample.textByPage);
+    }
+
     let pdfDoc: PDFDocument;
 
     if (pdfBase64 && pdfBase64.includes('base64,')) {
@@ -33,7 +44,6 @@ export async function POST(req: NextRequest) {
       const pdfBytes = Buffer.from(cleanBase64, 'base64');
       pdfDoc = await PDFDocument.load(pdfBytes);
     } else {
-      // Create clean standard agreement PDF
       pdfDoc = await PDFDocument.create();
       const page = pdfDoc.addPage([612, 792]);
       const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -144,8 +154,9 @@ export async function POST(req: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${filename}"; filename*=${filename}`,
+        'Content-Disposition': `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
         'Content-Length': modifiedPdfBytes.length.toString(),
+        'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'no-store, no-cache, must-revalidate',
         'Pragma': 'no-cache',
       },

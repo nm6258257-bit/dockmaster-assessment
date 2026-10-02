@@ -51,6 +51,9 @@ export default function SignPortalPage() {
         setCurrentParty(targetParty || env.parties[0]);
         if (env.status === 'completed') {
           setIsCompleted(true);
+          if (env.pdfBase64) {
+            setDownloadPdfUrl(env.pdfBase64);
+          }
         }
       } catch (e) {
         console.error('Error loading envelope:', e);
@@ -111,7 +114,9 @@ export default function SignPortalPage() {
         body: JSON.stringify({
           pdfBase64: envelope.pdfBase64,
           fields: envelope.fields,
-          title: envelope.title
+          title: envelope.title,
+          textByPage: envelope.textByPage,
+          numPages: envelope.numPages
         })
       });
 
@@ -169,43 +174,81 @@ export default function SignPortalPage() {
 
   const handleDownloadExecutedPdf = () => {
     try {
-      // Use standard HTML Form POST to /api/download-pdf
-      // This forces the browser to handle the file download natively via HTTP Content-Disposition headers,
-      // completely bypassing Chrome's blob UUID naming bug.
-      const form = document.createElement('form');
-      form.method = 'POST';
-      form.action = '/api/download-pdf';
-      form.target = '_blank';
+      const rawPdf = downloadPdfUrl || envelope?.pdfBase64;
+      const rawTitle = envelope?.title || 'Commercial_Lease_Agreement';
+      const cleanTitle = rawTitle.replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `Executed_${cleanTitle}.pdf`;
 
-      const inputTitle = document.createElement('input');
-      inputTitle.type = 'hidden';
-      inputTitle.name = 'title';
-      inputTitle.value = envelope?.title || 'Commercial_Lease_Agreement';
-      form.appendChild(inputTitle);
+      if (rawPdf && rawPdf.includes('base64,')) {
+        // Direct Client-Side Binary Blob Download
+        const cleanBase64 = rawPdf.replace(/^data:application\/pdf;base64,/, '');
+        const byteCharacters = atob(cleanBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
 
-      const inputPdf = document.createElement('input');
-      inputPdf.type = 'hidden';
-      inputPdf.name = 'pdfBase64';
-      inputPdf.value = downloadPdfUrl || envelope?.pdfBase64 || '';
-      form.appendChild(inputPdf);
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.setAttribute('download', filename);
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
 
-      const inputFields = document.createElement('input');
-      inputFields.type = 'hidden';
-      inputFields.name = 'fields';
-      inputFields.value = JSON.stringify(partyFields || []);
-      form.appendChild(inputFields);
-
-      document.body.appendChild(form);
-      form.submit();
-      setTimeout(() => {
-        document.body.removeChild(form);
-      }, 1000);
-    } catch (err) {
-      console.error('Download form error:', err);
-      if (downloadPdfUrl) {
-        window.open(downloadPdfUrl, '_blank');
+        // Keep anchor and object URL alive for 60 seconds so Chromium's async download manager
+        // reliably completes the file write without stripping the extension or defaulting to the blob UUID.
+        setTimeout(() => {
+          try {
+            document.body.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+          } catch {}
+        }, 60000);
+        return;
       }
+
+      // Server Endpoint Download Fallback
+      triggerServerDownload(filename);
+    } catch (err) {
+      console.error('Client download error, invoking server endpoint fallback:', err);
+      triggerServerDownload();
     }
+  };
+
+  const triggerServerDownload = (filename?: string) => {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/api/download-pdf';
+    form.target = '_self';
+
+    const inputTitle = document.createElement('input');
+    inputTitle.type = 'hidden';
+    inputTitle.name = 'title';
+    inputTitle.value = envelope?.title || 'Commercial_Lease_Agreement.pdf';
+    form.appendChild(inputTitle);
+
+    const inputPdf = document.createElement('input');
+    inputPdf.type = 'hidden';
+    inputPdf.name = 'pdfBase64';
+    inputPdf.value = downloadPdfUrl || envelope?.pdfBase64 || '';
+    form.appendChild(inputPdf);
+
+    const inputFields = document.createElement('input');
+    inputFields.type = 'hidden';
+    inputFields.name = 'fields';
+    inputFields.value = JSON.stringify(envelope?.fields || []);
+    form.appendChild(inputFields);
+
+    document.body.appendChild(form);
+    form.submit();
+    setTimeout(() => {
+      try {
+        document.body.removeChild(form);
+      } catch {}
+    }, 5000);
   };
 
   return (
@@ -308,7 +351,7 @@ export default function SignPortalPage() {
             </p>
 
             <div style={{ display: 'flex', justifyContent: 'center', gap: '14px' }}>
-              {downloadPdfUrl && (
+              {(downloadPdfUrl || envelope?.pdfBase64 || isCompleted) && (
                 <button
                   onClick={handleDownloadExecutedPdf}
                   className="btn btn-primary"

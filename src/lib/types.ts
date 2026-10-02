@@ -64,6 +64,7 @@ export interface Envelope {
   fields: DocumentField[];
   pdfFileName: string;
   pdfBase64?: string;
+  textByPage?: { page: number; text: string }[];
   numPages: number;
   auditEvents: AuditEvent[];
   senderSigningMode: SenderSigningMode;
