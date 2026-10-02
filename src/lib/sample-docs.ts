@@ -96,7 +96,7 @@ Printed Name: ______________________`
         page: 1,
         text: `STATEMENT OF WORK: AI PIPELINE INTEGRATION
 Client: DockMaster Inc.
-Contractor: Nathan Vanguard AI Solutions
+Contractor: Mathan Modine AI Solutions
 Scope: Deliver automated document parsing and e-signature intelligence pipeline.
 Milestone 1: Prototype delivery and validation test by October 4, 2026.`
       },
@@ -111,9 +111,9 @@ By: _______________________________
 Name: Karen Barnes, CEO
 Date: _____________________________
 
-CONTRACTOR: Nathan Vanguard AI Solutions
+CONTRACTOR: Mathan Modine AI Solutions
 By: _______________________________
-Name: Nathan V.
+Name: Mathan M.
 Date: _____________________________`
       }
     ]

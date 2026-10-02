@@ -1,14 +1,14 @@
 # Email: DockMaster AI Product Lead — The Project
 
 **From:** Karen Barnes  
-**To:** Nathan  
+**To:** Mathan Modine  
 **CC:** Scott Taylor  
 **Date:** Thursday, October 1, 2026 (11:28 AM)  
 **Subject:** DockMaster AI Product Lead — The Project  
 
 ---
 
-Hi Nathan,
+Hi Mathan,
 
 Congratulations on moving to the project stage for AI Product Lead at DockMaster!
 

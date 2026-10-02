@@ -1,6 +1,6 @@
 # DockMaster AI · AI-First E-Signature Platform
 
-> **Candidate:** Nathan Vanguard  
+> **Candidate:** Mathan Modine  
 > **Role:** AI Product Lead, DockMaster  
 > **Project Assessment:** AI-First E-Signature Build  
 > **Live Demo:** [http://localhost:3000](http://localhost:3000) (or Vercel deployment)  
